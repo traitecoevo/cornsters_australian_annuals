@@ -1,0 +1,128 @@
+---
+title: "Dataset construction"
+format: html
+execute:
+  echo: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(targets)
+library(dplyr)
+library(knitr)
+```
+
+This document describes how the analysis dataset is assembled and reports the
+result of each stage. It performs no computation — the pipeline in `_targets.R`
+does the work, and every number below is read from it with `tar_read()`.
+
+Run `targets::tar_make()` to build the dataset. `targets::tar_visnetwork()`
+shows the dependency graph.
+
+```{r}
+#| label: check
+if (length(tar_outdated()) > 0) {
+  warning("Some targets are out of date. Run targets::tar_make() first.")
+}
+```
+
+## Occurrence records
+
+Occurrences come from a single frozen GBIF download
+([0001494-250914085247600](https://www.gbif.org/occurrence/download/0001494-250914085247600)),
+so the input resolves to the same 24,385,439 records indefinitely rather than to
+whatever GBIF currently holds.
+
+Records are filtered to Australian, present, non-fossil, non-cultivated records
+with adequate coordinate precision (better than 0.05°) and uncertainty (under
+10 km), collected from 1900 onward, at species rank or below. Two institutions
+are excluded for known georeferencing problems. Records at country and state
+centroids, capital cities and biodiversity institutions are then removed, using
+buffers of 5 km, 2 km and 2 km respectively, and the result is deduplicated by
+location, species and year.
+
+```{r}
+#| label: tbl-records
+tibble::tibble(
+  stage = c("Raw download", "After cleaning and deduplication",
+            "After joining traits, taxonomy and climate"),
+  records = c(24385439L,
+              nrow(tar_read(gbif_clean)),
+              nrow(tar_read(data_analysis_individuals)))
+) |> mutate(records = format(records, big.mark = ",")) |> kable()
+```
+
+## Taxonomy and origin
+
+Names are aligned to the Australian Plant Census using APCalign, against a
+pinned release (set in `R/align_taxonomy.R`). Alignment assigns each name an
+accepted name and a native or introduced status; taxa that are not APC-accepted
+are dropped.
+
+Pinning the release matters: changing it moves species between native and
+introduced and shifts richness counts, so it is a scientific decision rather
+than a maintenance one.
+
+## Life history
+
+Life-history classifications come from AusTraits v7.0.0 (dataset `Wenk_2023`),
+re-aligned to the same APC release, since the AusTraits names were aligned
+against an earlier one. Taxa recorded as both annual and perennial —
+facultative annuals — are counted as annual.
+
+```{r}
+#| label: tbl-lifehistory
+tar_read(species_life_history) |> count(life_history) |> kable()
+```
+
+## Climate and population covariates
+
+WorldClim 2.1 at 2.5 arcmin supplies mean annual temperature (bio1), mean annual
+precipitation (bio12), precipitation of the driest month (bio14), precipitation
+seasonality (bio15) and precipitation of the driest quarter (bio17).
+
+Population density comes from the ABS Australian Population Grid 2011, summed
+onto the analysis grid and converted to people per km². Population accessibility
+is a Gaussian kernel-weighted sum of the square root of density, computed at
+100, 250 and 500 km bandwidths; the 250 km band is used in the analysis.
+
+## Analysis grid
+
+A regular 0.75° grid in EPSG:4326 covering Australia. Climate values are
+extracted at cell centres by bilinear interpolation — the grid aligns exactly
+with the WorldClim layers, so centres fall on the corner between four climate
+cells, and interpolation averages those four.
+
+```{r}
+#| label: tbl-grid
+grid <- tar_read(grid_square)
+tibble::tibble(
+  property = c("Resolution", "Columns x rows", "Cells", "Cells with climate and population data"),
+  value = c("0.75 degrees",
+            paste(terra::ncol(grid), "x", terra::nrow(grid)),
+            as.character(terra::ncell(grid)),
+            as.character(nrow(tar_read(grid_climate))))
+) |> kable()
+```
+
+## Assembled dataset
+
+Each retained occurrence carries its species, origin, life history, climate,
+population value and grid cell. Richness is then tabulated per cell for each of
+the four origin × life-history groups.
+
+```{r}
+#| label: tbl-groups
+tar_read(data_analysis_individuals) |>
+  filter(!is.na(life_history), establishment_means %in% c("native", "introduced")) |>
+  distinct(species, establishment_means, life_history) |>
+  count(establishment_means, life_history, name = "species") |>
+  kable()
+```
+
+## Global climate reference
+
+A 1° global climate grid is also built, used only to place Australian climate
+space in a global context (Figure S1).

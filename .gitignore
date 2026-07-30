@@ -1,0 +1,37 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+downloads/*
+*.DS_Store
+# Ignores the whole path, not just its contents: locally `outputs` is a symlink
+# into personal cloud storage, and `outputs/*` alone leaves that symlink itself
+# committable.
+/outputs
+# Legacy artefacts used as the phase 3-4 replication baseline. 404 MB, and a
+# reference copy rather than a build product — do not commit.
+outputs_legacy/
+# Baseline artefacts as delivered, plus the archive they came from. Both exceed
+# GitHub's 100 MB file limit; a `git add -A` swept them in once and the push was
+# rejected by the pre-receive hook, so they are named explicitly rather than
+# relied on to sit outside a pattern.
+outputs*.zip
+figures/*
+ignore/*
+ms/*
+*.Rproj
+*.rds
+*.docx
+
+# targets object store — local build cache, rebuilt by tar_make().
+# _targets/meta/ is deliberately included in the ignore: it records absolute
+# paths and per-machine build times, so sharing it across machines causes
+# spurious invalidation rather than preventing it.
+_targets/
+
+# Rendered reports; rebuilt by tar_make()
+*.html
+*_files/
+
+# Internal working notes, not part of the public repository
+CLAUDE.md

@@ -1,0 +1,205 @@
+---
+title: "Annuals and perennials across Australia's rainfall gradient — results"
+format: html
+execute:
+  echo: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(targets)
+library(dplyr)
+library(knitr)
+```
+
+This document reports the results. It performs no computation: every figure,
+table and model below is read from the `targets` pipeline with `tar_read()`.
+Run `targets::tar_make()` first if anything is out of date.
+
+Reading rather than recomputing is deliberate. When this document did its own
+work the same analysis existed both here and in `R/`, and the two copies could
+drift apart. There is now one definition of each result, and this file displays
+it.
+
+```{r}
+#| label: check
+if (length(tar_outdated()) > 0) {
+  warning("Some targets are out of date. Run targets::tar_make() before trusting this report.")
+}
+```
+
+# Data summary
+
+```{r}
+#| label: tbl-counts
+#| tbl-cap: "Species counts by origin and life history."
+tar_read(table1) |> kable()
+```
+
+# Figures
+
+## Figure 1. Climate space for Australia
+
+Mean annual precipitation and precipitation seasonality across the continent,
+the climate space they define, and total species richness.
+
+```{r}
+#| label: fig-1
+include_graphics(tar_read(fig1_png))
+```
+
+## Figure 2. Richness of annuals and perennials, native and introduced
+
+```{r}
+#| label: fig-2
+include_graphics(tar_read(fig2_png))
+```
+
+## Figure 3. Richness and the annual fraction against climate
+
+Fitted at the primary effort cutoff of 500 records per cell.
+
+```{r}
+#| label: fig-3
+include_graphics(tar_read(fig3_png))
+```
+
+```{r}
+#| label: tbl-fig3-stats
+#| tbl-cap: "Coefficients for the three models in Figure 3."
+tar_read(fig3_stats_table_500) |> kable()
+```
+
+### Residual standard error by group
+
+Residual standard error is used in preference to R², because R² is sensitive to
+the total variance in the response — groups with flatter responses yield a lower
+R² even where the model fits equally tightly in absolute terms. RSE gives a
+directly comparable measure of typical absolute deviation between observed and
+fitted log10 richness. It requires a separate model per group.
+
+```{r}
+#| label: tbl-rse
+#| tbl-cap: "Residual standard error, one model per origin and life-history group."
+tar_read(rse_fits) |> kable()
+```
+
+## Figure 4. Annual fraction across geography and climate space
+
+```{r}
+#| label: fig-4
+include_graphics(tar_read(fig4_png))
+```
+
+## Figure 5. Introduced fraction of annuals, and population accessibility
+
+```{r}
+#| label: fig-5
+include_graphics(tar_read(fig5_png))
+```
+
+```{r}
+#| label: tbl-prop-invasive
+#| tbl-cap: "Model fit for effect of population accessibility on likelihood an annual is introduced (versus native). Supplementary Table S2 in the manuscript."
+tar_read(tableS2) |>
+  dplyr::select(parameter, estimate_se, z_statistic, p_value) |>
+  kable(col.names = c("Parameter", "estimate ± SE", "z-statistic", "p-value"))
+```
+
+# Supplementary figures
+
+## Figure S1. Australian against global climate space
+
+```{r}
+#| label: fig-s1
+include_graphics(tar_read(figS1_png))
+```
+
+## Figures S2–S4. Sensitivity to sampling effort per grid cell
+
+Figure 3 re-run at four effort cutoffs, to check that the patterns do not depend
+on the inclusion of sparsely sampled cells.
+
+```{r}
+#| label: fig-cutoffs
+include_graphics(c(tar_read(figS_png_100), tar_read(figS_png_250),
+                   tar_read(figS_png_500), tar_read(figS_png_1000)))
+```
+
+## Figure S5. Sampling effort in climate space and geographically
+
+```{r}
+#| label: fig-s5
+include_graphics(tar_read(figS5_png))
+```
+
+## Figure S6. Effort diagnostics
+
+```{r}
+#| label: fig-s6
+include_graphics(tar_read(figS6_png))
+```
+
+```{r}
+#| label: tbl-effort
+#| tbl-cap: "Model of sampling effort against climate."
+parameters::parameters(tar_read(effort_model)) |> as.data.frame() |> kable()
+```
+
+# Extended data
+
+## Figure E2. Effort-standardised richness
+
+**Sampling bias is confounded with the rainfall gradient.** Collector effort is
+not uniform across Australia — wetter regions are systematically better sampled
+because they are more accessible and more botanically diverse. Because effort
+covaries with rainfall, observed richness conflates true biological signal with
+detection probability. To separate these, we use total vascular plant records
+per cell as a direct measure of sampling effort, diagnose the effort–richness
+relationship via species accumulation curves, and apply a rarefaction-based
+correction that resamples the full record pool at standardised effort levels
+(100 and 500 total records per cell) using a power-law accumulation model,
+projecting expected richness for all four origin × life-form groups
+simultaneously. These effort-corrected estimates are used as a sensitivity check
+against the raw-count models.
+
+```{r}
+#| label: fig-resample
+include_graphics(c(tar_read(figS_resample_png_100), tar_read(figS_resample_png_500)))
+```
+
+```{r}
+#| label: tbl-slopes
+#| tbl-cap: "Raw against effort-standardised slopes."
+tar_read(slopes_shift_table) |> kable()
+```
+
+## Figures E3 and E4. Richness coloured by population accessibility
+
+```{r}
+#| label: fig-e3-e4
+include_graphics(c(tar_read(figE3_png), tar_read(figE4_png)))
+```
+
+## Difference in annual fraction, native against introduced
+
+Not currently included in the paper.
+
+```{r}
+#| label: fig-4b
+include_graphics(tar_read(fig4b_png))
+```
+
+# Values quoted in the manuscript
+
+Each row gives the value as written in the manuscript, the value the pipeline
+currently produces, and whether the two differ.
+
+```{r}
+#| label: tbl-reported
+tar_read(reported_values_table) |>
+  mutate(across(where(is.numeric), \(x) signif(x, 5))) |>
+  kable()
+```

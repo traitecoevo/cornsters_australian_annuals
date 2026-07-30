@@ -1,0 +1,25 @@
+Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+Copyright (c) 2026 Elizabeth H. Wenk, William K. Cornwell, Ruby E. Stephens,
+David Coleman, Thomas Mesaglio, Isaac Towers, Sophie Yang, Daniel S. Falster
+
+The figures, tables and written content in this repository — everything in
+outputs/, and the .qmd documents — are licensed under a Creative Commons
+Attribution 4.0 International License.
+
+You are free to share and adapt this material for any purpose, including
+commercially, provided you give appropriate credit, link to the license, and
+indicate if changes were made.
+
+Full license text: https://creativecommons.org/licenses/by/4.0/legalcode
+Summary:           https://creativecommons.org/licenses/by/4.0/
+
+The source code in this repository (R/ and _targets.R) is licensed separately
+under the MIT License; see LICENSE.
+
+NOTE ON EXTERNAL DATA. This repository does not redistribute any third-party
+data. GBIF occurrences, AusTraits, WorldClim, the ABS population grid, Natural
+Earth outlines and the Inter typeface are all downloaded at build time and
+carry their own licenses. The one committed data file, data/australia.tif, is
+a coarse raster used solely to crop climate layers to the Australian land mass;
+its provenance is not recorded in this repository.

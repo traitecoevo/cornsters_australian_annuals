@@ -1,0 +1,63 @@
+flowchart TD
+    subgraph inputs[Raw inputs - downloaded automatically]
+        gbif[GBIF occurrences<br/>24.4M records]
+        wc[WorldClim 2.1]
+        abs[ABS population grid]
+        ne[Natural Earth coastlines]
+        at[AusTraits 7.0.0]
+        apc[(Australian Plant Census)]
+    end
+
+    subgraph clean[Cleaning and taxonomy]
+        gclean[gbif_clean<br/>16.6M records]
+        aligned[names_aligned<br/>native or introduced]
+        lh[species_life_history<br/>annual or perennial]
+    end
+
+    subgraph cov[Covariates and grid]
+        grid[grid_square<br/>0.75 degree]
+        clim[climate_raster]
+        pop[pop_density and<br/>pop_accessibility]
+    end
+
+    subgraph assembled[Assembled data]
+        ind[data_analysis_individuals<br/>one row per record]
+        gridclim[data_grid_climate<br/>one row per cell]
+    end
+
+    subgraph derived[Derived tables]
+        agrid[data_analysis_grid<br/>richness per cell and group]
+        prop[data_prop_annual]
+    end
+
+    subgraph models[Models]
+        m3[fig3 models<br/>4 effort cutoffs]
+        rare[accum_results<br/>rarefaction]
+        other[effort and<br/>invasion models]
+    end
+
+    out[outputs/<br/>17 figures and 7 tables]
+
+    gbif --> gclean --> aligned
+    apc --> aligned
+    at --> lh
+    apc --> lh
+    wc --> clim
+    abs --> pop
+    gclean --> ind
+    aligned --> ind
+    lh --> ind
+    clim --> ind
+    pop --> gridclim
+    clim --> gridclim
+    grid --> ind
+    grid --> gridclim
+    ind --> agrid --> prop
+    gridclim --> prop
+    ind --> rare
+    prop --> m3
+    prop --> other
+    m3 --> out
+    rare --> out
+    other --> out
+    ne --> out

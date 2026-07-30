@@ -1,0 +1,105 @@
+name: Validate pipeline
+
+# Checks that the pipeline DEFINITION is sound. It deliberately does not execute
+# the pipeline: a full tar_make() needs 32 GB of RAM and ~25 GB of disk, against
+# the 16 GB and ~14 GB a standard GitHub-hosted runner provides, and downloads
+# 4.7 GB before doing any work. Executing it would require a larger or
+# self-hosted runner.
+#
+# What this does catch, in about a minute and with no data at all:
+#   - syntax errors in _targets.R or anything in R/
+#   - targets referencing a function or another target that does not exist
+#   - duplicate target names and circular dependencies
+#
+# Those are the failures that actually happen when editing the pipeline, and
+# each would otherwise surface only partway through a long local run.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      # tar_quarto() calls quarto::quarto_inspect() when the target is DEFINED,
+      # to discover which tar_read() calls each document makes. That shells out
+      # to the Quarto CLI, so both the CLI and the R package are needed even
+      # though nothing is rendered here — tar_validate() fails without them.
+      - uses: quarto-dev/quarto-actions/setup@v2
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::targets
+            any::quarto
+            any::tarchetypes
+            any::tidyverse
+            any::terra
+            any::sf
+            any::arrow
+            any::glmmTMB
+            any::patchwork
+            any::data.table
+            any::CoordinateCleaner
+            any::ozmaps
+            any::rnaturalearth
+            any::geodata
+            any::viridis
+            any::RColorBrewer
+            any::ggnewscale
+            any::broom.mixed
+            any::performance
+            any::parameters
+            any::modelbased
+            any::furrr
+            any::ragg
+            any::systemfonts
+            any::scales
+            any::knitr
+            any::openssl
+            any::withr
+            traitecoevo/austraits
+            traitecoevo/APCalign
+
+      - name: All R sources parse
+        run: |
+          for (f in list.files("R", pattern = "[.]R$", full.names = TRUE)) {
+            parse(f); cat("ok  ", f, "\n")
+          }
+        shell: Rscript {0}
+
+      - name: Pipeline definition is valid
+        run: |
+          targets::tar_validate()
+          cat("tar_validate() passed\n")
+        shell: Rscript {0}
+
+      - name: Manifest builds and target names are unique
+        run: |
+          m <- targets::tar_manifest(fields = c("name", "command"))
+          cat("targets defined:", nrow(m), "\n")
+          dup <- m$name[duplicated(m$name)]
+          if (length(dup)) stop("duplicate target names: ", paste(dup, collapse = ", "))
+          cat("no duplicate names\n")
+        shell: Rscript {0}
+
+      - name: Every target's dependencies resolve
+        run: |
+          net <- targets::tar_network(targets_only = TRUE)
+          missing <- setdiff(unique(c(net$edges$from, net$edges$to)), net$vertices$name)
+          if (length(missing)) {
+            stop("targets depend on undefined objects: ", paste(missing, collapse = ", "))
+          }
+          cat("all", nrow(net$vertices), "targets resolve;", nrow(net$edges), "edges\n")
+        shell: Rscript {0}

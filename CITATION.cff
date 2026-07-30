@@ -1,0 +1,45 @@
+cff-version: 1.2.0
+message: If you use this software or its outputs, please cite both the software and the associated paper.
+title: >-
+  Analysis pipeline for annual and perennial plant richness across Australia's
+  rainfall gradient
+abstract: >-
+  A targets pipeline integrating GBIF occurrence records, AusTraits life-history
+  classifications, Australian Plant Census taxonomy and WorldClim climate data to
+  analyse how vascular plant species richness varies along Australia's rainfall
+  gradient for native and introduced annuals and perennials.
+type: software
+license: MIT
+repository-code: https://github.com/traitecoevo/cornsters_australian_annuals
+authors:
+  - family-names: Wenk
+    given-names: Elizabeth H.
+    affiliation: Evolution & Ecology Research Centre, UNSW Sydney
+  - family-names: Cornwell
+    given-names: William K.
+    affiliation: Evolution & Ecology Research Centre, UNSW Sydney
+  - family-names: Stephens
+    given-names: Ruby E.
+    affiliation: Evolution & Ecology Research Centre, UNSW Sydney
+  - family-names: Coleman
+    given-names: David
+    affiliation: Evolution & Ecology Research Centre, UNSW Sydney
+  - family-names: Mesaglio
+    given-names: Thomas
+    affiliation: Evolution & Ecology Research Centre, UNSW Sydney
+  - family-names: Towers
+    given-names: Isaac
+    affiliation: Evolution & Ecology Research Centre, UNSW Sydney
+  - family-names: Yang
+    given-names: Sophie
+    affiliation: Evolution & Ecology Research Centre, UNSW Sydney
+  - family-names: Falster
+    given-names: Daniel S.
+    affiliation: Evolution & Ecology Research Centre, UNSW Sydney
+keywords:
+  - plant ecology
+  - species richness
+  - life history
+  - biological invasions
+  - Australia
+  - reproducible research
