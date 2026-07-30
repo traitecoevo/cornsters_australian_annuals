@@ -32,11 +32,18 @@ download_stall_bytes <- 1024L # bytes/sec ...
 download_stall_seconds <- 120L # ... sustained for this long means dead, not slow
 
 # Floor for the no-curl fallback and for the third-party downloaders we cannot
-# pass curl options to (geodata, austraits, rnaturalearth). max() rather than
-# plain assignment because ?download.file asks packages not to DECREASE a
-# timeout the user raised through R_DEFAULT_INTERNET_TIMEOUT — which
-# list(timeout = 60 * 60) here silently did.
-download_timeout_floor <- 24L * 60L * 60L
+# pass curl options to (austraits, rnaturalearth). max() rather than plain
+# assignment because ?download.file asks packages not to DECREASE a timeout the
+# user raised through R_DEFAULT_INTERNET_TIMEOUT — which the
+# list(timeout = 60 * 60) this replaced silently did.
+#
+# BOUNDED, not enormous. A total timeout cannot tell slow from dead, so the only
+# question it answers is "how long should a dead connection hang before someone
+# is told". These two inputs are ~20 MB each; 30 minutes is absurdly generous for
+# them and still fails while a person is watching. The 628 MB and 4 GB downloads
+# do not rely on this at all — they go through download_resumable(), which has a
+# real stall guard.
+download_timeout_floor <- 30L * 60L
 
 with_generous_timeout <- function(expr) {
   withr::with_options(
@@ -66,6 +73,51 @@ format_bytes <- function(n) {
   sprintf("%.*f %s", if (i > 2) 2L else 0L, n / 1024^(i - 1), units[[i]])
 }
 
+host_of <- function(url) sub("^(https?://[^/]+).*", "\\1", url)
+
+# Ask the host for the file's size before committing to the transfer, and say
+# what came back.
+#
+# ADVISORY, never fatal. It exists because a stalled download is
+# indistinguishable from a slow one in the log — curl prints "0 b/s" either way,
+# and a collaborator watching a run sit at zero bytes has no way to tell whether
+# to wait or to interrupt. Answering "the host is not responding" up front is the
+# whole point.
+#
+# Not fatal because the ABS link is a Lotus Notes URL with an embedded document
+# id, and there is no reason to assume every such endpoint answers a HEAD
+# request the way it answers a GET. A probe that refused to proceed would turn a
+# working download into a failure. When the host really is dead, the stall guard
+# in the transfer below is what stops us, correctly and with a message.
+probe_size <- function(url, label, seconds = 20L) {
+  if (!requireNamespace("curl", quietly = TRUE)) {
+    return(invisible(NULL))
+  }
+  h <- curl::new_handle(
+    nobody = TRUE, followlocation = TRUE,
+    connecttimeout = seconds, timeout = seconds + 10L
+  )
+  res <- tryCatch(curl::curl_fetch_memory(url, handle = h), error = identity)
+
+  if (inherits(res, "error")) {
+    message(
+      "  ", host_of(url), " did not answer a size request (",
+      conditionMessage(res), ").\n",
+      "  Trying the download anyway. If the host is down this will stop after ",
+      download_stall_seconds, "s without progress rather than hang."
+    )
+    return(invisible(NULL))
+  }
+  n <- suppressWarnings(as.numeric(
+    curl::parse_headers_list(res$headers)[["content-length"]]
+  ))
+  if (length(n) != 1 || is.na(n) || n <= 0) {
+    return(invisible(NULL))
+  }
+  message("  ", label, ": ", format_bytes(n), " reported by ", host_of(url))
+  invisible(n)
+}
+
 download_resumable <- function(url, dest, label, size_hint = NULL) {
   part <- paste0(dest, ".part")
   resumed_from <- if (file.exists(part)) file.size(part) else 0
@@ -81,6 +133,15 @@ download_resumable <- function(url, dest, label, size_hint = NULL) {
     ". Slow connections are fine; an interrupted download resumes on the next ",
     "targets::tar_make()."
   )
+  total <- probe_size(url, label)
+  if (!is.null(total) && resumed_from > 0) {
+    message(sprintf(
+      "  %s of %s still to fetch (%.0f%% already done).",
+      format_bytes(total - resumed_from), format_bytes(total),
+      100 * resumed_from / total
+    ))
+  }
+  started <- Sys.time()
 
   if (requireNamespace("curl", quietly = TRUE)) {
     # NB no `timeout` handle option is set, deliberately — that would reinstate
@@ -98,12 +159,23 @@ download_resumable <- function(url, dest, label, size_hint = NULL) {
       } else {
         res$error[[1]]
       }
+      have <- if (file.exists(part)) file.size(part) else 0
       stop(
         label, " download did not complete: ", why, ".\n",
-        "The partial file is kept at ", part, " (",
-        sprintf("%.2f GB", if (file.exists(part)) file.size(part) / 1024^3 else 0),
-        ") — re-run targets::tar_make() to resume from that point rather than ",
-        "starting again.",
+        if (have > 0) {
+          paste0(
+            "  ", format_bytes(have), " is kept at ", part,
+            " — re-run targets::tar_make() to carry on from there rather than ",
+            "starting again."
+          )
+        } else {
+          paste0(
+            "  Nothing was fetched, so ", host_of(url), " is most likely down ",
+            "rather than slow. This is not a problem with your setup and ",
+            "nothing has been lost: re-run targets::tar_make() when the host ",
+            "is back and the pipeline continues from here."
+          )
+        },
         call. = FALSE
       )
     }
@@ -117,6 +189,22 @@ download_resumable <- function(url, dest, label, size_hint = NULL) {
   if (!file.rename(part, dest)) {
     stop("Could not move ", part, " into place at ", dest, call. = FALSE)
   }
+
+  secs <- as.numeric(difftime(Sys.time(), started, units = "secs"))
+  fetched <- file.size(dest) - resumed_from
+  message(sprintf(
+    "  %s complete: %s on disk%s.",
+    label, format_bytes(file.size(dest)),
+    if (secs > 1 && fetched > 0) {
+      sprintf(
+        ", %s fetched in %s (%s/s)", format_bytes(fetched),
+        if (secs < 90) sprintf("%.0fs", secs) else sprintf("%.0f min", secs / 60),
+        format_bytes(fetched / secs)
+      )
+    } else {
+      ""
+    }
+  ))
   dest
 }
 
@@ -137,6 +225,15 @@ download_resumable <- function(url, dest, label, size_hint = NULL) {
 adopt_truncated <- function(dest, label) {
   if (!file.exists(dest) || is_readable_zip(dest)) {
     return(invisible(FALSE))
+  }
+
+  # An empty file carries nothing to resume from and is what a connection that
+  # died before its first byte leaves behind — geodata does exactly this. Staging
+  # it would only produce a "resuming, 0 B already on disk" message.
+  if (file.size(dest) == 0) {
+    unlink(dest)
+    message(label, ": cleared an empty file left by an earlier failed attempt.")
+    return(invisible(TRUE))
   }
 
   part <- paste0(dest, ".part")
@@ -271,14 +368,56 @@ download_abs_population <- function(dest_dir = "downloads",
 # the climate layers are loaded they must take paths from this target
 # rather than rebuilding that string, and the old directory (plus the 658 MB
 # wc2.1_2.5m_bio.zip beside it) then becomes redundant.
-# geodata does the fetching, so the low-speed guard in download_resumable() is
-# not available here — geodata::worldclim_global() takes no handle options and
-# never touches `timeout`, which leaves R's 60 s default in force for a 628 MB
-# transfer. Checked: no function in geodata, rnaturalearth or austraits mentions
-# timeout at all. Raising the floor around the call is the only lever, so all
-# three third-party downloads below get it.
+# The 628 MB archive is fetched by download_resumable() rather than by geodata,
+# and geodata is then left to unzip it and assemble the paths.
+#
+# THIS IS SAFE because geodata's .downloadDirect() opens with
+# `if (!file.exists(filename))`: with the zip already in place it skips the
+# transfer entirely and worldclim_global() proceeds to its own unzip(). Read off
+# the installed source, and exercised below.
+#
+# WHY BOTHER. geodata fetches with utils::download.file(), which has no low-speed
+# option, so the only lever reachable from outside is the total timeout — and a
+# total timeout is precisely what this file removed for being unable to tell
+# "slow" from "dead". That is not hypothetical: geodata.ucdavis.edu went down
+# during testing (no TCP connect at all) and the run sat at zero bytes
+# indefinitely, because the generous floor that keeps slow transfers alive also
+# keeps dead ones alive. Fetching it ourselves puts the 120 s stall guard back in
+# charge.
+#
+# COST: the base URL is now duplicated from geodata's own .wc_url(). If geodata
+# ever moves hosts this line must follow, and the failure would be a clear 404
+# from download_resumable() rather than anything silent. Calling
+# geodata:::.wc_url() to avoid the duplication would trade a visible copy for a
+# dependency on another package's private function.
+worldclim_base_url <- "https://geodata.ucdavis.edu/climate/worldclim/2_1/base/"
+
 download_worldclim <- function(dest_dir = "downloads", res = "2.5",
                                vars = c(1, 12, 14, 15, 17)) {
+  fres <- if (identical(as.character(res), "0.5")) "30s" else paste0(res, "m")
+  wanted <- file.path(
+    dest_dir, "climate", paste0("wc2.1_", fres),
+    paste0("wc2.1_", fres, "_bio_", vars, ".tif")
+  )
+
+  # geodata decides on the tifs, not the zip, so only fetch when they are absent
+  # — otherwise a completed run would re-download on every build.
+  if (!all(file.exists(wanted))) {
+    zip_dir <- file.path(dest_dir, "climate", paste0("wc2.1_", fres))
+    dir.create(zip_dir, recursive = TRUE, showWarnings = FALSE)
+    zip <- file.path(zip_dir, paste0("wc2.1_", fres, "_bio.zip"))
+    # A stalled geodata attempt leaves a zero-byte zip here, and .downloadDirect()
+    # would then see a file, skip the download, and fail in unzip() as
+    # "download failed" on every subsequent run. Clear or resume it first.
+    adopt_truncated(zip, "WorldClim")
+    if (!file.exists(zip)) {
+      download_resumable(
+        paste0(worldclim_base_url, basename(zip)), zip,
+        paste0("WorldClim 2.1 ", fres, " bioclim"), size_hint = "~600 MB"
+      )
+    }
+  }
+
   r <- with_generous_timeout(
     geodata::worldclim_global(var = "bio", res = res, path = dest_dir)
   )
@@ -314,6 +453,12 @@ download_austraits <- function(dest_dir = "downloads/austraits", version = "7.0.
     return(cached)
   }
 
+  # austraits does its own fetching, so there is no stall guard and no resume
+  # here — say so, rather than leaving a silent pause. ~19 MB from Zenodo.
+  message(
+    "Downloading AusTraits ", version, " (~19 MB) from Zenodo. ",
+    "This one cannot resume if interrupted; it will restart."
+  )
   with_generous_timeout(austraits::load_austraits(path = dest_dir, version = version))
   # load_austraits() names the cache after the Zenodo asset; find it rather
   # than hardcoding, since the naming has changed between releases.
@@ -347,6 +492,10 @@ download_naturalearth <- function(dest_dir = "downloads") {
     }
     if (!length(found())) {
       dir.create(d, recursive = TRUE, showWarnings = FALSE)
+      message(
+        "Downloading Natural Earth 10m ", type, " (~10 MB). ",
+        "Fetched by rnaturalearth, so no resume if interrupted."
+      )
       with_generous_timeout(rnaturalearth::ne_download(
         scale = 10, type = type, category = "physical",
         returnclass = "sf", destdir = d

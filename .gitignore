@@ -23,7 +23,10 @@ outputs*.zip
 figures/*
 ignore/*
 ms/*
-*.Rproj
+# NB the project file itself IS tracked, deliberately: every path in the
+# pipeline is relative to the repo root, so opening the .Rproj is what
+# guarantees an RStudio user's working directory is that root. Only the
+# per-user .Rproj.user directory (top of this file) is ignored.
 *.rds
 *.docx
 
