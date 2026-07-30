@@ -28,11 +28,13 @@ The analysis is a [`targets`](https://books.ropensci.org/targets/) pipeline. Not
 - **R ≥ 4.6.0** (tested on 4.6.1)
 - **[Quarto](https://quarto.org)**, installed and on the `PATH`. The pipeline renders `Dataset_construction.qmd` and `Analysis.qmd` as targets, so `tar_make()` needs Quarto even if you never open those documents.
 
+**A slow connection is fine.** There is no overall time limit on any download, and interrupted transfers resume: if a fetch dies at 3.7 of 4 GB, re-running `tar_make()` collects the remaining 300 MB rather than starting again. Downloads abort only when a connection genuinely stalls — two minutes below 1 kB/s. A part-finished file left by an older version of this pipeline is picked up and resumed too, so there is nothing to clean up first.
+
 ### 2. Install the R packages
 
 ```r
 install.packages(c(
-  "targets", "tarchetypes", "quarto", "remotes",
+  "targets", "tarchetypes", "quarto", "remotes", "curl",
   "tidyverse", "terra", "sf", "arrow", "glmmTMB",
   "patchwork", "gridExtra", "furrr", "future", "data.table", "CoordinateCleaner",
   "ozmaps", "rnaturalearth", "geodata", "viridis", "RColorBrewer", "ggnewscale",
@@ -44,7 +46,7 @@ remotes::install_github("traitecoevo/austraits")
 remotes::install_github("traitecoevo/APCalign")
 ```
 
-The first four are the ones a clean R installation is most likely to be missing: `targets` on its own is not enough, `tarchetypes` and `quarto` drive the report targets, and `remotes` installs the two GitHub packages.
+The first five are the ones a clean R installation is most likely to be missing: `targets` on its own is not enough, `tarchetypes` and `quarto` drive the report targets, `remotes` installs the two GitHub packages, and `curl` is what makes the large downloads resumable — without it they still work, but a failed transfer restarts from zero.
 
 ### 3. Run it
 

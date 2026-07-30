@@ -12,6 +12,172 @@
 # targets hashes the returned file, so downstream work invalidates on the
 # file's CONTENT rather than on its mere existence.
 
+# --- download helpers ------------------------------------------------------
+
+# A TOTAL-TRANSFER TIMEOUT IS THE WRONG TOOL for a 4 GB file, and this file used
+# one. R's `timeout` option becomes libcurl's CURLOPT_TIMEOUT, a cap on the whole
+# transfer rather than on any single stalled read — ?download.file calls 60 s
+# "often insufficient for downloads of large files (50MB or more)". The GBIF
+# fetch below raised it to an hour, which aborted any download not finished
+# within the hour: not one that had died, one that was merely slow. A
+# collaborator on a domestic connection hit exactly that. At 1.5 MB/s the
+# archive needs ~45 min of uninterrupted throughput and any hiccup pushes it
+# past the cap.
+#
+# What should abort a download is a DEAD connection, which is what libcurl's
+# low-speed guard expresses directly: give up only after a sustained period
+# below a floor rate. A slow but live transfer then runs for as long as it
+# needs to.
+download_stall_bytes <- 1024L # bytes/sec ...
+download_stall_seconds <- 120L # ... sustained for this long means dead, not slow
+
+# Floor for the no-curl fallback and for the third-party downloaders we cannot
+# pass curl options to (geodata, austraits, rnaturalearth). max() rather than
+# plain assignment because ?download.file asks packages not to DECREASE a
+# timeout the user raised through R_DEFAULT_INTERNET_TIMEOUT — which
+# list(timeout = 60 * 60) here silently did.
+download_timeout_floor <- 24L * 60L * 60L
+
+with_generous_timeout <- function(expr) {
+  withr::with_options(
+    list(timeout = max(download_timeout_floor, getOption("timeout", 0L))),
+    expr
+  )
+}
+
+# Fetch `url` to `dest`, resuming a part-finished attempt rather than restarting.
+#
+# WHY NOT download.file(): no resume, and that turned one timeout into two
+# failures. Every guard in this file is `if (!file.exists(zip))`, so a truncated
+# file counted as a finished one: the next tar_make() skipped the download and
+# handed the truncation to unzip(), which then failed with a complaint about the
+# archive rather than about the transfer. The collaborator paid for the whole
+# download twice and was told the wrong cause the second time.
+#
+# The .part staging is what makes `file.exists(dest)` mean "complete" — dest
+# only ever appears via the rename at the end — and it is also what curl resumes
+# into across runs.
+format_bytes <- function(n) {
+  if (is.na(n) || n <= 0) {
+    return("0 B")
+  }
+  units <- c("B", "kB", "MB", "GB")
+  i <- min(length(units), 1L + floor(log(n, 1024)))
+  sprintf("%.*f %s", if (i > 2) 2L else 0L, n / 1024^(i - 1), units[[i]])
+}
+
+download_resumable <- function(url, dest, label, size_hint = NULL) {
+  part <- paste0(dest, ".part")
+  resumed_from <- if (file.exists(part)) file.size(part) else 0
+
+  message(
+    "Downloading ", label,
+    if (!is.null(size_hint)) paste0(" (", size_hint, ")") else "",
+    if (resumed_from > 0) {
+      paste0(" — resuming, ", format_bytes(resumed_from), " already on disk")
+    } else {
+      ""
+    },
+    ". Slow connections are fine; an interrupted download resumes on the next ",
+    "targets::tar_make()."
+  )
+
+  if (requireNamespace("curl", quietly = TRUE)) {
+    # NB no `timeout` handle option is set, deliberately — that would reinstate
+    # the total-transfer cap this function exists to remove. multi_download()
+    # applies no overall limit of its own (multi_timeout defaults to Inf).
+    res <- curl::multi_download(
+      url, part,
+      resume = TRUE, progress = TRUE,
+      low_speed_limit = download_stall_bytes,
+      low_speed_time = download_stall_seconds
+    )
+    if (!isTRUE(res$success[[1]]) || !file.exists(part)) {
+      why <- if (is.na(res$error[[1]])) {
+        paste("HTTP status", res$status_code[[1]])
+      } else {
+        res$error[[1]]
+      }
+      stop(
+        label, " download did not complete: ", why, ".\n",
+        "The partial file is kept at ", part, " (",
+        sprintf("%.2f GB", if (file.exists(part)) file.size(part) / 1024^3 else 0),
+        ") — re-run targets::tar_make() to resume from that point rather than ",
+        "starting again.",
+        call. = FALSE
+      )
+    }
+  } else {
+    # No curl installed: fall back to base R with a timeout long enough that it
+    # is not the thing that fails. No resume here, so discard any partial first.
+    unlink(part)
+    with_generous_timeout(utils::download.file(url, part, mode = "wb"))
+  }
+
+  if (!file.rename(part, dest)) {
+    stop("Could not move ", part, " into place at ", dest, call. = FALSE)
+  }
+  dest
+}
+
+# Adopt a truncated download left behind by an earlier run.
+#
+# The download.file() this file used before could not resume AND wrote straight
+# to the destination, so a failure left a partial file exactly where a complete
+# one goes. One collaborator's run died on the old hour cap at 3,752 of 3,794 MB
+# — 99% of the way — and left a <key>.zip that the `if (!file.exists(zip))`
+# guards below would have taken for a finished download: the next tar_make()
+# would have skipped the fetch, unzipped a truncated archive, and reported a
+# problem with the archive rather than with the transfer. The 4 GB would then
+# have had to be fetched again from zero.
+#
+# So any destination file that is not a readable archive is moved to .part,
+# where the resume path collects it and fetches only the remainder. This is
+# what makes the fix retroactive — nobody has to delete anything or start over.
+adopt_truncated <- function(dest, label) {
+  if (!file.exists(dest) || is_readable_zip(dest)) {
+    return(invisible(FALSE))
+  }
+
+  part <- paste0(dest, ".part")
+  # If both exist, the bigger file is the better starting point.
+  if (file.exists(part) && file.size(part) >= file.size(dest)) {
+    unlink(dest)
+    return(invisible(TRUE))
+  }
+  if (!file.rename(dest, part)) {
+    stop("Could not stage ", dest, " for resumption at ", part, call. = FALSE)
+  }
+  message(
+    label, ": found an incomplete download of ", format_bytes(file.size(part)),
+    " from an earlier run. Keeping it and fetching only the remainder."
+  )
+  invisible(TRUE)
+}
+
+is_readable_zip <- function(path) {
+  tryCatch(
+    nrow(utils::unzip(path, list = TRUE)) > 0,
+    error = function(e) FALSE, warning = function(w) FALSE
+  )
+}
+
+# An archive that cannot be listed is a failed download, not a corrupt upstream
+# file. Say which, and clear it so the next run refetches instead of failing
+# identically forever.
+verify_zip <- function(path, label) {
+  if (!is_readable_zip(path)) {
+    unlink(path)
+    stop(
+      label, " archive at ", path, " could not be read, which almost always ",
+      "means the download was truncated rather than that the upstream file is ",
+      "bad. It has been deleted; re-run targets::tar_make() to fetch it again.",
+      call. = FALSE
+    )
+  }
+  invisible(path)
+}
+
 # --- GBIF ------------------------------------------------------------------
 
 # The exact download the analysis is built on. Citable and frozen: GBIF retains
@@ -31,15 +197,16 @@ download_gbif <- function(dest_dir = "downloads/GBIF", key = gbif_download_key) 
   }
 
   zip <- file.path(dest_dir, paste0(key, ".zip"))
+  adopt_truncated(zip, "GBIF")
   if (!file.exists(zip)) {
     url <- paste0("https://api.gbif.org/v1/occurrence/download/request/", key, ".zip")
-    message("Downloading GBIF ", key, " (~4 GB) — this is slow but happens once.")
-    # timeout is per-connection and defaults to 60s, nowhere near enough here.
-    withr::with_options(
-      list(timeout = 60 * 60),
-      utils::download.file(url, zip, mode = "wb")
-    )
+    # Resume is real here, not hopeful: the endpoint 302s to
+    # occurrence-download.gbif.org, which advertises accept-ranges: bytes and
+    # answers a Range request with 206 and a content-range against the full
+    # 3,978,907,996 bytes. Verified against the live endpoint, not assumed.
+    download_resumable(url, zip, paste("GBIF", key), size_hint = "~4 GB")
   }
+  verify_zip(zip, "GBIF")
   utils::unzip(zip, exdir = dest_dir)
   if (!file.exists(csv)) {
     stop(
@@ -76,9 +243,18 @@ download_abs_population <- function(dest_dir = "downloads",
 
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   zip <- file.path(dest_dir, "australian_population_grid_2011_tif_format.zip")
+  # Before the checksum, not after: a truncated download fails verify_sha256()
+  # too, and that message says the upstream payload has changed and asks the
+  # reader to confirm it is the same product. For a half-fetched file that is the
+  # wrong diagnosis pointed at the wrong person. Staging it for resume first
+  # leaves the checksum to mean only what it is meant to mean.
+  adopt_truncated(zip, "ABS population grid")
   if (!file.exists(zip)) {
-    utils::download.file(abs_pop_url, zip, mode = "wb")
+    download_resumable(abs_pop_url, zip, "ABS population grid", size_hint = "~2 MB")
   }
+  # Checksum first: it distinguishes a truncated download from a changed upstream
+  # payload more precisely than verify_zip() can, and its message is the one that
+  # matters if ABS ever reissues the file.
   verify_sha256(zip, expected_sha256, "ABS population grid")
   utils::unzip(zip, exdir = out_dir)
   if (!file.exists(tif)) stop("ABS zip did not contain ", basename(tif))
@@ -95,9 +271,17 @@ download_abs_population <- function(dest_dir = "downloads",
 # the climate layers are loaded they must take paths from this target
 # rather than rebuilding that string, and the old directory (plus the 658 MB
 # wc2.1_2.5m_bio.zip beside it) then becomes redundant.
+# geodata does the fetching, so the low-speed guard in download_resumable() is
+# not available here — geodata::worldclim_global() takes no handle options and
+# never touches `timeout`, which leaves R's 60 s default in force for a 628 MB
+# transfer. Checked: no function in geodata, rnaturalearth or austraits mentions
+# timeout at all. Raising the floor around the call is the only lever, so all
+# three third-party downloads below get it.
 download_worldclim <- function(dest_dir = "downloads", res = "2.5",
                                vars = c(1, 12, 14, 15, 17)) {
-  r <- geodata::worldclim_global(var = "bio", res = res, path = dest_dir)
+  r <- with_generous_timeout(
+    geodata::worldclim_global(var = "bio", res = res, path = dest_dir)
+  )
   if (is.null(r)) stop("geodata::worldclim_global() returned NULL — download failed.")
   fres <- if (identical(as.character(res), "0.5")) "30s" else paste0(res, "m")
   paths <- file.path(
@@ -130,7 +314,7 @@ download_austraits <- function(dest_dir = "downloads/austraits", version = "7.0.
     return(cached)
   }
 
-  austraits::load_austraits(path = dest_dir, version = version)
+  with_generous_timeout(austraits::load_austraits(path = dest_dir, version = version))
   # load_austraits() names the cache after the Zenodo asset; find it rather
   # than hardcoding, since the naming has changed between releases.
   hits <- list.files(dest_dir, pattern = "\\.rds$", full.names = TRUE)
@@ -163,10 +347,10 @@ download_naturalearth <- function(dest_dir = "downloads") {
     }
     if (!length(found())) {
       dir.create(d, recursive = TRUE, showWarnings = FALSE)
-      rnaturalearth::ne_download(
+      with_generous_timeout(rnaturalearth::ne_download(
         scale = 10, type = type, category = "physical",
         returnclass = "sf", destdir = d
-      )
+      ))
     }
     hits <- found()
     if (!length(hits)) {
@@ -232,16 +416,15 @@ download_inter <- function(dest_dir = "downloads/fonts", version = inter_version
 
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   zip <- file.path(dest_dir, paste0("Inter-", version, ".zip"))
+  adopt_truncated(zip, "Inter")
   if (!file.exists(zip)) {
     url <- paste0(
       "https://github.com/rsms/inter/releases/download/v",
       version, "/Inter-", version, ".zip"
     )
-    withr::with_options(
-      list(timeout = 600),
-      utils::download.file(url, zip, mode = "wb")
-    )
+    download_resumable(url, zip, paste0("Inter ", version), size_hint = "~34 MB")
   }
+  verify_zip(zip, "Inter")
 
   wanted <- file.path("extras/ttf", paste0("Inter-", inter_faces, ".ttf"))
   utils::unzip(zip, files = wanted, exdir = out_dir, junkpaths = TRUE)

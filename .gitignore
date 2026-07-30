@@ -2,7 +2,11 @@
 .Rhistory
 .RData
 .Ruserdata
-downloads/*
+# Whole path, not just contents, for the same reason as /outputs below: a
+# `downloads` symlink pointing at an existing copy of the inputs is the obvious
+# way to avoid re-fetching 4 GB, and `downloads/*` left that symlink committable.
+# It was committed once, carrying an absolute path from one machine.
+/downloads
 *.DS_Store
 # Ignores the whole path, not just its contents: locally `outputs` is a symlink
 # into personal cloud storage, and `outputs/*` alone leaves that symlink itself
