@@ -42,7 +42,26 @@ manuscript_claims <- tibble::tribble(
   "z_intro_popaccess", 42.52, "Results, Supp Table 2",
   "z_intro_popaccess_bio12", -41.35, "Results, Supp Table 2",
   "rse_annual_cutoff1000", 0.26, "Results, cutoff sensitivity",
-  "rse_annual_cutoff100", 0.32, "Results, cutoff sensitivity"
+  "rse_annual_cutoff100", 0.32, "Results, cutoff sensitivity",
+  # Retention of richness under the 500-record standardisation. The draft quotes
+  # each of these as a RANGE across the four taxon groupings ("14-18% in the
+  # wettest quartile"), so each range needs two keys: the range is the claim, and
+  # either end can drift on its own.
+  #
+  # The draft's numbers are the MEDIAN OF THE PER-CELL RATIOS, not the pooled
+  # sum(S)/sum(n). Established by fitting all five candidate aggregations against
+  # the quoted ranges: median-of-ratios lands within 1-3 points on all four
+  # subsets, pooled is out by 9-17 on two of them, and mean-of-ratios,
+  # ratio-of-means and ratio-of-medians are worse still. rarefaction_retention()
+  # returns both columns; this comparison reads pct_median_cell.
+  "retention_wettest_min", 14, "Results, Extended Data Fig. 2c-f",
+  "retention_wettest_max", 18, "Results, Extended Data Fig. 2c-f",
+  "retention_driest_min", 41, "Results, Extended Data Fig. 2c-f",
+  "retention_driest_max", 59, "Results, Extended Data Fig. 2c-f",
+  "retention_least_seasonal_min", 19, "Results, Extended Data Fig. 2c-f",
+  "retention_least_seasonal_max", 27, "Results, Extended Data Fig. 2c-f",
+  "retention_most_seasonal_min", 36, "Results, Extended Data Fig. 2c-f",
+  "retention_most_seasonal_max", 46, "Results, Extended Data Fig. 2c-f"
 )
 
 # Table 1 — species counts by origin and life history.
@@ -112,6 +131,7 @@ reported_values <- function(data_analysis_individuals, data_model_500,
                             data_model_resampling_500, fig3_stats,
                             rse_fits, prop_invasive_annual_model,
                             fig3_100, fig3_1000,
+                            rarefaction_retention_table,
                             gbif_raw_rows = 24385439) {
   known <- data_analysis_individuals |>
     dplyr::filter(
@@ -141,6 +161,38 @@ reported_values <- function(data_analysis_individuals, data_model_500,
     if (length(v)) v else NA_real_
   }
 
+  # Ends of the retention range across the four taxon groupings, for one climate
+  # quartile. ROUNDED TO WHOLE PERCENT deliberately: the draft quotes these as
+  # integers, and `changed` is meant to fire when a number would print
+  # differently at the precision the manuscript uses. Left unrounded, 17.64
+  # against a quoted 18 would flag as changed when the paper needs no edit.
+  retention_end <- function(gradient, quartile, end) {
+    v <- rarefaction_retention_table$pct_median_cell[
+      rarefaction_retention_table$gradient == gradient &
+        rarefaction_retention_table$quartile == quartile
+    ]
+    v <- v[!is.na(v)]
+    if (!length(v)) return(NA_real_)
+    round(if (end == "min") min(v) else max(v))
+  }
+
+  # Cells the standardised analysis actually uses.
+  #
+  # NOT n_distinct(data_model_resampling_500$cell), which was the previous
+  # definition and is wrong. make_data_model_resampling() LEFT joins the
+  # projections onto data_model_250, so the frame keeps all 1,049 cells of the
+  # 250-record cutoff and marks the short ones NA — project_s() returns NA for any
+  # cell holding fewer than n_eval records. Counting rows there reported 1,049
+  # against the draft's 891 and flagged an 18% drift that was pure artefact: the
+  # fits drop those rows, and never saw those cells. Filtering to complete rows
+  # gives 906, the quantity the draft's number is.
+  resampling_cells <- dplyr::n_distinct(
+    data_model_resampling_500$cell[
+      !is.na(data_model_resampling_500$n_annual) &
+        !is.na(data_model_resampling_500$n_perennial)
+    ]
+  )
+
   computed <- tibble::tribble(
     ~key,                        ~current,
     "records_raw",               as.numeric(gbif_raw_rows),
@@ -152,7 +204,7 @@ reported_values <- function(data_analysis_individuals, data_model_500,
     "n_introduced_annual",       as.numeric(pick("introduced", "annual")),
     "n_introduced_perennial",    as.numeric(pick("introduced", "perennial")),
     "cells_gt500",               as.numeric(dplyr::n_distinct(data_model_500$cell)),
-    "cells_effort_standardised", as.numeric(dplyr::n_distinct(data_model_resampling_500$cell)),
+    "cells_effort_standardised", as.numeric(resampling_cells),
     "z_frac_bio12",              term_stat("log10(bio12)", "statistic"),
     "z_frac_native",             term_stat("establishment_meansnative", "statistic"),
     "z_frac_bio15",              term_stat("bio15", "statistic"),
@@ -171,7 +223,15 @@ reported_values <- function(data_analysis_individuals, data_model_500,
     # 1000 and 0.323 at 100, against 0.26 and 0.32 in the text. Using the OLS
     # figures here would have reported a spurious 36% drift.
     "rse_annual_cutoff1000",     as.numeric(glmmTMB::sigma(fig3_1000$fit_n_annual)),
-    "rse_annual_cutoff100",      as.numeric(glmmTMB::sigma(fig3_100$fit_n_annual))
+    "rse_annual_cutoff100",      as.numeric(glmmTMB::sigma(fig3_100$fit_n_annual)),
+    "retention_wettest_min",        retention_end("bio12", 4, "min"),
+    "retention_wettest_max",        retention_end("bio12", 4, "max"),
+    "retention_driest_min",         retention_end("bio12", 1, "min"),
+    "retention_driest_max",         retention_end("bio12", 1, "max"),
+    "retention_least_seasonal_min", retention_end("bio15", 1, "min"),
+    "retention_least_seasonal_max", retention_end("bio15", 1, "max"),
+    "retention_most_seasonal_min",  retention_end("bio15", 4, "min"),
+    "retention_most_seasonal_max",  retention_end("bio15", 4, "max")
   )
 
   manuscript_claims |>

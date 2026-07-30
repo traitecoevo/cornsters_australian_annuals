@@ -333,6 +333,18 @@ list(
     )
   ),
 
+  # Retention of richness under the 500-record standardisation, by rainfall and
+  # seasonality quartile. Backs the Extended Data Fig. 2c-f percentages quoted in
+  # Results, which nothing computed before.
+  tar_target(
+    rarefaction_retention_table,
+    rarefaction_retention(accum_results, data_model_250, n_eval = 500)
+  ),
+  tar_target(rarefaction_retention_csv,
+    write_output_csv(rarefaction_retention_table, "rarefaction_retention.csv"),
+    format = "file"
+  ),
+
   # Raw vs rarefaction-corrected slopes (slopes_shift_table.csv). The .qmd
   # compares against whatever its loop left behind, which is the 500-record
   # standardisation; passed explicitly here.
@@ -448,7 +460,8 @@ list(
       data_analysis_individuals, data_model_500,
       data_model_resampling_500, fig3_stats_table_500,
       rse_fits, prop_invasive_annual_model,
-      fig3_100, fig3_1000
+      fig3_100, fig3_1000,
+      rarefaction_retention_table
     )
   ),
   tar_target(reported_values_csv,

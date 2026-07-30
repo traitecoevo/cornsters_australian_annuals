@@ -471,6 +471,99 @@ make_data_model_resampling <- function(data_model_250, accum_results, n_eval) {
     dplyr::mutate(frac_annuals = n_annual / (n_annual + n_perennial))
 }
 
+# How much richness the effort standardisation removes, by climate quartile.
+#
+# Supports the Results claim that standardising to a common effort reduces
+# richness in every taxon grouping but does so unevenly along both gradients —
+# the retention percentages quoted against Extended Data Fig. 2c-f. Nothing else
+# in the pipeline computed it, so the numbers in the draft were transcribed from
+# a working session rather than derived from a target.
+#
+# BOTH raw and rarefied counts come from accum_results, not from a join between
+# accum_results and data_model_*. They are then guaranteed to describe the same
+# record pool: fit_accumulation() tallies n_<group> and projects S_<group>_<ne>
+# off one shuffled pool per cell, whereas data_model_* counts are assembled
+# through a different filter chain.
+#
+# CELL SET. Cells where any of the four S columns is NA are dropped: project_s()
+# returns NA when a cell holds fewer than n_eval records, so at n_eval = 500 the
+# retained set is effectively the >=500-record cells, matching the figure. The
+# quartile breaks are computed on that set, cell-level (one bio12 and one bio15
+# per cell) rather than row-level, so the four quartiles hold equal numbers of
+# cells.
+#
+# TWO AGGREGATIONS, because "rarefied richness was X% of the raw count" is
+# ambiguous and they do not agree:
+#   pooled  — sum(S) / sum(n) over the cells in the quartile. Richness-weighted,
+#             so species-rich cells dominate.
+#   median  — median of the per-cell ratio S / n. Cell-weighted.
+# Report whichever the manuscript sentence means, but report which one.
+rarefaction_retention <- function(accum_results, data_model_250, n_eval = 500) {
+  groups <- c(
+    "native_annual", "native_perennial",
+    "introduced_annual", "introduced_perennial"
+  )
+  s_cols <- paste0("S_", groups, "_", n_eval)
+  n_cols <- paste0("n_", groups)
+
+  climate <- data_model_250 |>
+    dplyr::distinct(cell, bio12, bio15)
+
+  cells <- accum_results |>
+    dplyr::select(cell, n_records, dplyr::all_of(c(n_cols, s_cols))) |>
+    dplyr::filter(!dplyr::if_any(dplyr::all_of(s_cols), is.na)) |>
+    dplyr::inner_join(climate, by = "cell") |>
+    dplyr::filter(!is.na(bio12), !is.na(bio15)) |>
+    dplyr::mutate(
+      q_bio12 = dplyr::ntile(bio12, 4),
+      q_bio15 = dplyr::ntile(bio15, 4)
+    )
+
+  # One row per cell per group, so both gradients can be summarised in one pass.
+  long <- cells |>
+    tidyr::pivot_longer(
+      cols = dplyr::all_of(c(n_cols, s_cols)),
+      names_to = c(".value", "group"),
+      names_pattern = paste0("^(n|S)_(.*?)(?:_", n_eval, ")?$")
+    ) |>
+    dplyr::mutate(group = factor(group, levels = groups))
+
+  summarise_by <- function(gradient, quartile_col) {
+    long |>
+      dplyr::rename(quartile = dplyr::all_of(quartile_col)) |>
+      dplyr::group_by(gradient = gradient, quartile, group) |>
+      dplyr::summarise(
+        n_cells = dplyr::n(),
+        raw = sum(n),
+        rarefied = sum(S),
+        pct_pooled = 100 * sum(S) / sum(n),
+        pct_median_cell = 100 * stats::median(S[n > 0] / n[n > 0]),
+        .groups = "drop"
+      )
+  }
+
+  dplyr::bind_rows(
+    summarise_by("bio12", "q_bio12"),
+    summarise_by("bio15", "q_bio15")
+  ) |>
+    dplyr::mutate(
+      n_eval = n_eval,
+      # Q1/Q4 named as the manuscript describes them.
+      quartile_label = dplyr::case_when(
+        gradient == "bio12" & quartile == 1 ~ "driest",
+        gradient == "bio12" & quartile == 4 ~ "wettest",
+        gradient == "bio15" & quartile == 1 ~ "least seasonal",
+        gradient == "bio15" & quartile == 4 ~ "most seasonal",
+        TRUE ~ paste0("Q", quartile)
+      )
+    ) |>
+    dplyr::select(
+      gradient, quartile, quartile_label, group, n_cells,
+      raw, rarefied, pct_pooled, pct_median_cell, n_eval
+    ) |>
+    dplyr::arrange(gradient, quartile, group)
+}
+
 # Raw vs rarefaction-corrected slopes. Ported from Analysis.qmd, which
 # writes out sixteen near-identical blocks; this is the same computation as two
 # nested loops.
