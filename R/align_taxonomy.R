@@ -21,6 +21,55 @@
 # APCalign::get_versions() lists what is available.
 apc_version <- "2026-03-25"
 
+# THE ONLY PLACE load_taxonomic_resources() MAY BE CALLED. Every APCalign call
+# in this pipeline takes its resources from here.
+#
+# The paragraph above used to be enforced by passing `version = apc_version` to
+# each APCalign function. That does not work, and failed silently for
+# create_taxonomic_update_lookup(): it declares a `version` argument that its
+# body never reads, and falls back to a `resources` default of
+# load_taxonomic_resources(quiet = quiet) — no version — which resolves through
+# default_version() to whatever APC release is current. R/life_history.R
+# therefore tracked the newest release while this file stayed pinned, and
+# nothing anywhere reported a conflict.
+#
+# It surfaced only because a new APCalign release landed between two builds of
+# the same commit and moved 15 species between the native counts. targets cannot
+# catch this on its own: the release is fetched inside the function, so no
+# tracked dependency changes and no target rebuilds.
+#
+# PASS resources =, NEVER version =. An APCalign entry point that accepts
+# `resources` is using the pin; one given only `version` may or may not be, and
+# the difference is invisible at the call site.
+apc_resources <- local({
+  cache <- new.env(parent = emptyenv())
+  function(version = apc_version) {
+    key <- as.character(version)
+    if (is.null(cache[[key]])) {
+      # NB the column is `versions`, plural. Getting it wrong yields NULL and a
+      # warning rather than an error, which disables this check silently — the
+      # same failure mode as the pin it exists to protect.
+      available <- tryCatch(APCalign::get_versions()$versions,
+        error = function(e) NULL
+      )
+      # Only an assertion when the list is actually retrievable; offline, the
+      # cached resources below may still work and should not be blocked.
+      if (!is.null(available) && !key %in% as.character(available)) {
+        stop(
+          "APC release '", key, "' is not among the versions APCalign offers.\n",
+          "  available: ", paste(utils::head(as.character(available), 8), collapse = ", "),
+          "\n  Set apc_version in R/align_taxonomy.R to one of these. Changing it ",
+          "moves species between native and introduced, so it is a scientific ",
+          "decision rather than a maintenance one.",
+          call. = FALSE
+        )
+      }
+      cache[[key]] <- APCalign::load_taxonomic_resources(version = version)
+    }
+    cache[[key]]
+  }
+})
+
 # The APC-accepted canonical names, as a plain character vector.
 #
 # Split out so the DAG tracks it as its own target: load_taxonomic_resources()
@@ -29,7 +78,7 @@ apc_version <- "2026-03-25"
 # table). Keeping the vector rather than the resources object also means a
 # change in some unrelated APC table does not invalidate the occurrence join.
 apc_accepted_names <- function(version = apc_version) {
-  APCalign::load_taxonomic_resources(version = version)$APC_accepted$canonical_name
+  apc_resources(version)$APC_accepted$canonical_name
 }
 
 # Returns one row per unique GBIF species name, with its APC-aligned name and
@@ -37,7 +86,7 @@ apc_accepted_names <- function(version = apc_version) {
 #
 # `species` is the character vector of unique names from the cleaned GBIF table.
 align_taxonomy <- function(species, version = apc_version) {
-  resources <- APCalign::load_taxonomic_resources(version = version)
+  resources <- apc_resources(version)
 
   gbif_names_aligned <-
     species |>

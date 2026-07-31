@@ -50,8 +50,26 @@ extract_life_history <- function(austraits_path, version = apc_version) {
   #
   # Carrying original_name through and joining on THAT recovers the trait, while
   # accepted_name remains the label. Measured: 161 NAs -> 0.
+  #
+  # `resources =`, NOT `version =`. THIS PIN WAS NOT WORKING.
+  #
+  # create_taxonomic_update_lookup() declares a `version` argument and its body
+  # never reads it: the only thing it uses is `resources`, whose default is
+  # load_taxonomic_resources(quiet = quiet) — with no version passed through, so
+  # it resolves through default_version() to whatever APC release is current.
+  # Passing version = here was therefore silently ignored, and this step tracked
+  # the latest release while align_taxonomy.R, which passes resources =, stayed
+  # correctly pinned.
+  #
+  # HOW IT SURFACED: a clean rebuild two days after a warm one moved 15 species
+  # between the native counts, with introduced counts untouched and
+  # names_aligned bit-identical. A new APCalign release had landed in between,
+  # which moved default_version() under a target that looked pinned. targets
+  # cannot see this — the release is fetched inside the function, so no
+  # dependency changes and nothing rebuilds — which is what let it drift
+  # unnoticed.
   lookup <- APCalign::create_taxonomic_update_lookup(species_life_history$species,
-    version = version
+    resources = apc_resources(version)
   ) |>
     dplyr::filter(taxonomic_status == "accepted") |>
     dplyr::select(original_name, species = accepted_name)
