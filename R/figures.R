@@ -596,23 +596,26 @@ make_figE_pop <- function(data_model, data_prop_annual, xvar = c("bio12", "bio15
       ggplot2::labs(y = ylab, x = xlab, title = title) +
       ggplot2::theme_bw() +
       ggplot2::theme(
-        axis.title.y = ggplot2::element_text(size = 12),
+        axis.title = ggplot2::element_text(size = 12),
         plot.title = ggplot2::element_text(vjust = 6, hjust = 0.5, size = 12)
       )
+    # Whether a panel carries the legend and whether it carries the x title are
+    # separate questions: panel c is on the bottom row, so it needs the x title,
+    # but the legend only goes on the right-hand column. Tying the two together
+    # is what left c unlabelled.
+    if (xlab == "") {
+      p <- p + ggplot2::theme(axis.title.x = ggplot2::element_blank())
+    }
     if (show_legend) {
       p + ggplot2::scale_fill_viridis_c(name = "population\naccessibility\n(log 10)") +
         ggplot2::theme(
-          axis.title = ggplot2::element_text(size = 12),
           legend.key.size = ggplot2::unit(0.35, "cm"),
           legend.text = ggplot2::element_text(size = 8),
           legend.title = ggplot2::element_text(size = 8)
         )
     } else {
       p + ggplot2::scale_fill_viridis_c() +
-        ggplot2::theme(
-          legend.position = "none",
-          axis.title.x = ggplot2::element_blank()
-        )
+        ggplot2::theme(legend.position = "none")
     }
   }
 
