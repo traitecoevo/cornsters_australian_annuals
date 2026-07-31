@@ -86,7 +86,7 @@ make_data_analysis_grid <- function(individuals_filtered) {
 }
 
 # data_analysis_grid pivoted wide, one row per cell x establishment_means,
-# joined to the grid climate..
+# joined to the grid climate.
 make_data_prop_annual <- function(data_analysis_grid, grid_climate) {
   data_analysis_grid |>
     dplyr::select(-n_obs) |>
@@ -107,7 +107,6 @@ make_data_prop_annual <- function(data_analysis_grid, grid_climate) {
 }
 
 # One row per cell, with the native/introduced fraction-annuals offset.
-# .
 #
 # DEFERRED DEFECT, ported as-is on purpose. Cells with only introduced records
 # get native = NA, and frac_offset = native - introduced propagates that NA
@@ -133,7 +132,7 @@ make_missing_fraction <- function(data_prop_annual) {
     )
 }
 
-# The fig3 modelling frame, before any effort cutoff..
+# The fig3 modelling frame, before any effort cutoff.
 #
 # bio12 > 0 and bio15 > 0 because both are log/ratio-scaled in the models;
 # n_annual > 1 and n_perennial > 1 to avoid modelling zeros introduced by the

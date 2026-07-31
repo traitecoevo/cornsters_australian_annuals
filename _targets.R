@@ -466,12 +466,12 @@ list(
     ),
     format = "file"
   ),
-  tar_target(figE3, make_figE_pop(data_model_500, data_prop_annual, "bio12")),
+  tar_target(figE3, make_figE_pop(data_model_500, "bio12")),
   tar_target(figE3_png, write_output_plot(figE3, "figE3.png",
     width = 6.7, height = 6,
     font_paths = inter_fonts
   ), format = "file"),
-  tar_target(figE4, make_figE_pop(data_model_500, data_prop_annual, "bio15")),
+  tar_target(figE4, make_figE_pop(data_model_500, "bio15")),
   tar_target(figE4_png, write_output_plot(figE4, "figE4.png",
     width = 6.7, height = 6,
     font_paths = inter_fonts

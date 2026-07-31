@@ -69,7 +69,7 @@ make_data_analysis_individuals <- function(gbif_clean, names_aligned,
     dplyr::filter(species %in% accepted_names)
 }
 
-# The analysis-side filter applied to data_analysis_individuals at
+# The analysis-side filter applied to data_analysis_individuals in
 # Analysis.qmd, before anything downstream consumes it.
 #
 # This is strictly an ANALYSIS filter, not part of dataset construction: the

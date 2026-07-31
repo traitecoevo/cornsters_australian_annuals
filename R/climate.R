@@ -1,5 +1,5 @@
 # Climate and population covariate rasters — ported from
-# Dataset_construction.qmd and :341-386.
+# Dataset_construction.qmd.
 #
 # Every function here takes FILE PATHS, not rasters, for anything sourced
 # outside the DAG. A SpatRaster cannot be passed between targets by default —

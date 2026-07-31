@@ -1,6 +1,6 @@
 # Model fitting for the richness / fraction-annuals analysis.
 #
-# Moved verbatim from Analysis.qmd during the targets migration (issue #44,
+# Moved verbatim from Analysis.qmd during the targets migration (issue #44).
 # Bodies are unchanged; only the surrounding chunk fences are gone.
 # Package-qualified calls are used where the original had them — the tidyverse
 # and ggplot2 verbs rely on packages loaded via tar_option_set(packages =).
@@ -375,7 +375,7 @@ run_accumulation <- function(records, workers = 1) {
     dplyr::mutate(result = furrr::future_map(
       data, fit_accumulation,
       .progress = TRUE,
-      # Fixed seed, matching.
+      # Fixed seed — see the note above accumulation_seed.
       .options = furrr::furrr_options(seed = accumulation_seed)
     )) |>
     dplyr::select(-data) |>
@@ -413,7 +413,7 @@ fit_rse <- function(data_model) {
   )
 }
 
-# Sampling effort as a function of climate..
+# Sampling effort as a function of climate.
 fit_effort <- function(data_prop_annual) {
   glmmTMB::glmmTMB(
     log10(n_obs_per_cell) ~ log10(bio12) * bio15,
@@ -423,7 +423,6 @@ fit_effort <- function(data_prop_annual) {
 }
 
 # Introduced fraction of annuals against population accessibility and climate.
-# .
 fit_prop_invasive_annual <- function(data_prop_annual) {
   d <- data_prop_annual |>
     dplyr::select(
@@ -439,8 +438,8 @@ fit_prop_invasive_annual <- function(data_prop_annual) {
   )
 }
 
-# Rarefaction-corrected modelling frame. Ported from the loop body at
-# .
+# Rarefaction-corrected modelling frame. Ported from the loop body in
+# Analysis.qmd.
 #
 # Replaces the raw n_annual / n_perennial counts with richness projected to a
 # standardised effort level (n_eval = 100 or 500 records per cell) by

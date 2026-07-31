@@ -354,12 +354,6 @@ make_figS6 <- function(data_prop_annual, effort_model) {
     ggplot2::theme(plot.tag = ggplot2::element_text(size = 14, face = "bold"))
 }
 
-# species_cutoff — minimum total species per cell for the fraction-annuals
-# panels. Separate from the n_obs_per_cell threshold used in
-# the models: this one guards against a fraction computed from a handful of
-# species, which is noisy regardless of how many records produced them.
-species_cutoff <- 5
-
 # Figure 4 — fraction annuals as maps and in climate space, plus richness in
 # climate space, for both floras. Saved at 8 x 12.
 #
@@ -369,11 +363,14 @@ species_cutoff <- 5
 # bottom row carries an x-axis title, which is what the theme differences
 # between panels encode.
 #
-# NB rows 1-2 apply species_cutoff; rows 3-4 do not. That asymmetry is in the
-# original and is deliberate — a fraction needs a denominator large enough to
-# mean something, a count does not.
+# species_cutoff is the minimum total species per cell for the fraction-annuals
+# panels, and is separate from the n_obs_per_cell threshold used in the models:
+# this one guards against a fraction computed from a handful of species, which
+# is noisy regardless of how many records produced them.
 #
-
+# NB rows 1-2 apply it; rows 3-4 do not. That asymmetry is in the original and
+# is deliberate — a fraction needs a denominator large enough to mean
+# something, a count does not.
 make_fig4 <- function(data_prop_annual, data_ozmaps, data_sea,
                       species_cutoff = 5) {
   frac_data <- function(group) {
@@ -491,7 +488,7 @@ make_fig4 <- function(data_prop_annual, data_ozmaps, data_sea,
 }
 
 # Collapses data_prop_annual to one row per cell, with the introduced fraction
-# of each life-history group..
+# of each life-history group.
 make_prop_annual_collapsed <- function(data_prop_annual) {
   data_prop_annual |>
     dplyr::group_by(cell, x, y, pop_accessibility, bio12, bio15) |>
@@ -555,22 +552,26 @@ make_fig5 <- function(prop_annual_collapsed, data_ozmaps, data_sea) {
 }
 
 # Figures Extended 3 and 4 — richness against a climate variable, coloured by
-# population accessibility. Analysis.qmd and :1560-1635.
+# population accessibility. Ported from Analysis.qmd.
 #
 # The two figures are identical apart from the x variable, so one function
 # covers both: E3 uses bio12 on a log axis, E4 uses bio15 on a linear one. The
-# The original code wrote them out as two near-duplicate blocks of eight panels.
-make_figE_pop <- function(data_model, data_prop_annual, xvar = c("bio12", "bio15")) {
+# original code wrote them out as two near-duplicate blocks of eight panels.
+#
+# data_prop_annual is deliberately not a parameter. The .qmd joins
+# pop_accessibility back on from it here:
+#
+#   left_join(data_prop_annual |> select(cell, pop_accessibility) |> distinct())
+#
+# with no `by`, so dplyr joins on every common column — cell AND
+# pop_accessibility. data_model already carries pop_accessibility (it is derived
+# from data_prop_annual), so that join is a no-op which happens to work. Writing
+# `by = "cell"` instead produces .x/.y suffixes and breaks. Dropping the join
+# entirely is the equivalent that cannot be misread, which leaves the frame
+# itself unused — taking it as an argument would only add a false edge to the
+# targets DAG.
+make_figE_pop <- function(data_model, xvar = c("bio12", "bio15")) {
   xvar <- match.arg(xvar)
-  # The .qmd joins pop_accessibility back on from data_prop_annual here:
-  #
-  #   left_join(data_prop_annual |> select(cell, pop_accessibility) |> distinct())
-  #
-  # with no `by`, so dplyr joins on every common column — cell AND
-  # pop_accessibility. data_model already carries pop_accessibility (it is
-  # derived from data_prop_annual), so that join is a no-op which happens to
-  # work. Writing `by = "cell"` instead produces .x/.y suffixes and breaks.
-  # Dropping the join entirely is the equivalent that cannot be misread.
   prep <- function(group) {
     data_model |>
       dplyr::mutate(pop_accessibility_log = log10(pop_accessibility)) |>

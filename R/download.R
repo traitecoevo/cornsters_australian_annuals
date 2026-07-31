@@ -473,9 +473,9 @@ download_austraits <- function(dest_dir = "downloads/austraits", version = "7.0.
 # Ocean and land outlines, used for plotting and for masking the population
 # kernel.
 #
-# NOTE: rnaturalearth 1.2.0 writes a GeoPackage, not a
-# shapefile. Dataset_construction.qmd, :416 and :461 all check for and
-# read ne_10m_{ocean,land}.shp, so those reads are already broken against the
+# NOTE: rnaturalearth 1.2.0 writes a GeoPackage, not a shapefile.
+# Dataset_construction.qmd checks for and
+# reads ne_10m_{ocean,land}.shp, so those reads are already broken against the
 # installed version — the guard sees no .shp, re-downloads every render, and
 # then st_read() fails on a file that was never written. Ported code must take
 # the path from this function rather than rebuilding a ".shp" string.
