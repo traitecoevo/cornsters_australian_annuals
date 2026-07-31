@@ -38,12 +38,25 @@ jobs:
       # though nothing is rendered here — tar_validate() fails without them.
       - uses: quarto-dev/quarto-actions/setup@v2
 
+      # KEEP IN STEP WITH the install block in readme.md. There is no mechanism
+      # forcing these to agree, and a package missing here is not merely a
+      # slower CI: _targets.R asserts that marginaleffects, quarto and austraits
+      # are present before defining the pipeline, so an omission fails
+      # tar_validate() outright. That is how marginaleffects was found missing
+      # from this list — it had been absent since the workflow was written, and
+      # CI was validating a pipeline without a package the pipeline needs.
+      #
+      # `remotes` is deliberately NOT here: setup-r-dependencies installs the
+      # traitecoevo packages below itself.
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           packages: |
             any::targets
             any::quarto
             any::tarchetypes
+            any::marginaleffects
+            any::future
+            any::curl
             any::tidyverse
             any::terra
             any::sf
