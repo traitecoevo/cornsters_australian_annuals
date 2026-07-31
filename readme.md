@@ -36,10 +36,10 @@ The analysis is a [`targets`](https://books.ropensci.org/targets/) pipeline. Not
 install.packages(c(
   "targets", "tarchetypes", "quarto", "remotes", "curl",
   "tidyverse", "terra", "sf", "arrow", "glmmTMB",
-  "patchwork", "gridExtra", "furrr", "future", "data.table", "CoordinateCleaner",
+  "patchwork", "furrr", "future", "data.table", "CoordinateCleaner",
   "ozmaps", "rnaturalearth", "geodata", "viridis", "RColorBrewer", "ggnewscale",
   "broom.mixed", "performance", "parameters", "modelbased", "marginaleffects", "knitr",
-  "ragg", "systemfonts", "scales", "openssl", "withr", "waldo"
+  "ragg", "systemfonts", "scales", "openssl", "withr"
 ))
 
 remotes::install_github("traitecoevo/austraits")
