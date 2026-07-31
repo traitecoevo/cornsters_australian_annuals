@@ -38,7 +38,7 @@ install.packages(c(
   "tidyverse", "terra", "sf", "arrow", "glmmTMB",
   "patchwork", "gridExtra", "furrr", "future", "data.table", "CoordinateCleaner",
   "ozmaps", "rnaturalearth", "geodata", "viridis", "RColorBrewer", "ggnewscale",
-  "broom.mixed", "performance", "parameters", "modelbased", "knitr",
+  "broom.mixed", "performance", "parameters", "modelbased", "marginaleffects", "knitr",
   "ragg", "systemfonts", "scales", "openssl", "withr", "waldo"
 ))
 
@@ -47,6 +47,8 @@ remotes::install_github("traitecoevo/APCalign")
 ```
 
 The first five are the ones a clean R installation is most likely to be missing: `targets` on its own is not enough, `tarchetypes` and `quarto` drive the report targets, `remotes` installs the two GitHub packages, and `curl` is what makes the large downloads resumable — without it they still work, but a failed transfer restarts from zero.
+
+`marginaleffects` is easy to miss for a different reason: nothing in this repository names it. `modelbased::estimate_slopes()` needs it at runtime, but `modelbased` only *suggests* it, so installing `modelbased` does not bring it in. `tar_make()` checks for it, `quarto` and `austraits` before building anything, so a missing one stops the run immediately rather than after the download and the clean.
 
 ### 3. Run it
 

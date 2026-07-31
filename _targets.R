@@ -12,6 +12,49 @@
 library(targets)
 library(tarchetypes)
 
+# Fail in the first second rather than the thirty-fifth minute.
+#
+# tar_option_set(packages =) below is checked when a target that needs them
+# runs, which for the late stages is after the 4 GB download, the occurrence
+# clean and the rarefaction. A collaborator lost 34 min 43 s of a run to a
+# missing `marginaleffects`, reported as a targets error deep inside a
+# tar_map index rather than as "install this".
+#
+# The three below are the ones no amount of reading the install list prevents,
+# because nothing in this repository names them as dependencies:
+#
+#   marginaleffects  modelbased only SUGGESTS it, so install.packages(
+#                    "modelbased") does not bring it in — but
+#                    modelbased::estimate_slopes() needs it at runtime.
+#                    Used by slopes_shift_table, near the end of the pipeline.
+#   quarto           tarchetypes::tar_quarto() drives the report targets
+#                    through the quarto R package.
+#   austraits        needed by download_austraits() in the first minute; listed
+#                    here so a GitHub-installed package missing entirely is
+#                    reported alongside the others rather than on its own.
+#
+# system.file() rather than requireNamespace(): it answers "is this installed"
+# without loading the namespace, so this costs nothing at startup.
+local({
+  needed <- c(
+    marginaleffects = "required by modelbased::estimate_slopes(); modelbased only Suggests it",
+    quarto = "required by tarchetypes::tar_quarto() for the two report targets",
+    austraits = "install with remotes::install_github('traitecoevo/austraits')"
+  )
+  missing <- names(needed)[!nzchar(vapply(
+    names(needed), function(p) system.file(package = p), character(1)
+  ))]
+  if (length(missing)) {
+    stop(
+      "Missing package", if (length(missing) > 1) "s" else "", ":\n",
+      paste0("  ", missing, " — ", needed[missing], collapse = "\n"),
+      "\n\nSee the install block in readme.md. Stopping now rather than partway ",
+      "through a build that takes over an hour.",
+      call. = FALSE
+    )
+  }
+})
+
 tar_option_set(
   packages = c(
     "tidyverse", "terra", "arrow", "sf",
